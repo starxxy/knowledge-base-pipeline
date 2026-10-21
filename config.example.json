@@ -1,0 +1,11 @@
+{
+  "kb_home": "E:/knowledge-base",
+  "media_dir": "Z:/douyin-media",
+  "python": "python",
+  "ffmpeg": "ffmpeg",
+  "agent_browser_session": "kb-douyin",
+  "whisper_model": "large-v3",
+  "whisper_device": "cuda",
+  "whisper_compute_type": "float16",
+  "whisper_language": "zh"
+}
