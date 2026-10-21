@@ -86,9 +86,11 @@ def main(url):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     pt = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # 文末话题标签 -> 知识库标签
+    # 文末话题标签 -> 知识库标签（排除 HEX 色值，如 #EE6B0D）
     tags = []
     for t in re.findall(r"#([^\s#]{1,20})", plain):
+        if re.fullmatch(r"[0-9A-Fa-f]{3,8}", t):
+            continue
         if t not in tags:
             tags.append(t)
     tag_line = ", ".join(tags)
