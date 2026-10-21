@@ -1,103 +1,112 @@
-# -*- coding: utf-8 -*-
-"""公众号文章入库：链接 → 正文 + 图片存档 + 条目草稿 + 索引。
-
-用法: python wechat-ingest.py <文章URL>
-如果直抓被「环境异常」拦截，会提示改用浏览器兜底（见 README）。
-"""
-import datetime
-import json
-import os
-import re
-import sys
-from pathlib import Path
-
+# 公众号入库流水线：文章链接 → 全文 + 图片存档 + 条目草稿 + 索引
+# 用法: python wechat-ingest.py <文章URL>
+import sys, re, os, html, json, datetime, urllib.parse
 import requests
 from bs4 import BeautifulSoup
 
-try:
+try:  # 控制台可能是 GBK，避免标题里的特殊字符导致 print 崩溃
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
 
-CONFIG = {}
-try:
-    _cfg = Path(__file__).resolve().parent.parent / "config.json"
-    if _cfg.exists():
-        CONFIG = json.loads(_cfg.read_text(encoding="utf-8-sig"))
-except Exception:
-    CONFIG = {}
-
-KB = os.environ.get("KB_HOME") or CONFIG.get("kb_home") or str(Path.home() / "knowledge-base")
-UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
-
-
-def fetch(url):
-    session = requests.Session()
-    session.headers.update({"User-Agent": UA, "Referer": "https://mp.weixin.qq.com/"})
-    r = session.get(url, timeout=30)
-    r.encoding = "utf-8"
-    return session, r.text
-
-
 def main(url):
-    session, html = fetch(url)
-    soup = BeautifulSoup(html, "lxml")
+    UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    kb = r"E:\deepseek\knowledge-base"
+    s = requests.Session()
+    s.headers.update({"User-Agent": UA})
+    r = s.get(url, timeout=30)
+    r.encoding = "utf-8"
+    soup = BeautifulSoup(r.text, "lxml")
 
     def meta(prop):
         m = soup.find("meta", property=prop)
-        return (m.get("content") or "").strip() if m else ""
+        return m["content"] if m else ""
 
-    title = meta("og:title") or (soup.title.get_text(strip=True) if soup.title else "")
+    title = meta("og:title")
     author = meta("og:article:author")
-    m = re.search(r'data-nickname="([^"]+)"', html)
-    account = m.group(1) if m else ""
-    ct = re.search(r'var ct = "?(\d{10})"?', html)
+    m = re.search(r'data-nickname="([^"]+)"', r.text)
+    account = html.unescape(m.group(1)) if m else ""
+    ct = re.search(r'var ct = "?(\d{10})"?', r.text)
     ptime = datetime.datetime.fromtimestamp(int(ct.group(1))).strftime("%Y-%m-%d %H:%M") if ct else ""
 
     content = soup.find("div", id="js_content")
     if not content:
-        print("正文未找到：可能需要验证码/登录，或该链接是分享页。"
-              "换一个 User-Agent 重试，或改用浏览器兜底方案。")
-        sys.exit(2)
+        print("正文未找到（可能被删除/需登录）"); sys.exit(1)
+    plain = content.get_text("\n", strip=True)
+    plain = re.sub(r"\n{3,}", "\n\n", plain)
 
-    plain = re.sub(r"\n{3,}", "\n\n", content.get_text("\n", strip=True))
     aid = url.rstrip("/").split("/")[-1].split("?")[0]
-    adir = Path(KB) / "_assets" / "wechat" / aid
-    adir.mkdir(parents=True, exist_ok=True)
+    adir = os.path.join(kb, "_assets", "wechat", aid)
+    os.makedirs(adir, exist_ok=True)
 
-    # 图片
-    img_lines = []
-    for i, im in enumerate(content.find_all("img"), 1):
+    # 图片：按 URL 去重 + 按内容哈希去重（同一张图反复出现只保存一次）
+    import hashlib
+    url_map, seen_hash, saved = {}, {}, []
+    for im in content.find_all("img"):
         u = im.get("data-src") or im.get("src") or ""
         if not u.startswith("http"):
             continue
+        key = u.split("?")[0] if "mmbiz.qpic.cn" in u else u   # 公众号图参数只是格式变体，按路径去重
+        url_map.setdefault(key, u)
+    for i, u in enumerate(url_map.values(), 1):
         try:
-            rr = session.get(u, timeout=20, headers={"Referer": url})
+            rr = s.get(u, timeout=20, headers={"Referer": url})
             if rr.status_code == 200 and len(rr.content) > 1000:
-                ext = ".png" if ("png" in u.lower() or "png" in rr.headers.get("content-type", "")) else ".jpg"
-                if "gif" in u.lower():
-                    ext = ".gif"
-                if "webp" in u.lower():
-                    ext = ".webp"
+                digest = hashlib.md5(rr.content).hexdigest()
+                if digest in seen_hash:          # 同内容图片已保存过，复用引用
+                    saved.append(seen_hash[digest])
+                    continue
+                ext = ".png" if "png" in u.lower() or "png" in rr.headers.get("content-type", "") else ".jpg"
+                if "gif" in u.lower(): ext = ".gif"
+                if "webp" in u.lower(): ext = ".webp"
                 name = "img_%02d%s" % (i, ext)
-                (adir / name).write_bytes(rr.content)
-                img_lines.append("![图片](../_assets/wechat/%s/%s)\n> 原文配图" % (aid, name))
+                open(os.path.join(adir, name), "wb").write(rr.content)
+                seen_hash[digest] = name
+                saved.append(name)
         except Exception:
             pass
+    saved = list(dict.fromkeys(saved))  # 去重引用但保持顺序
 
-    # 话题标签 → 知识库标签
+    # 视频（记录元数据 + 封面）
+    video_info = []
+    for v in content.find_all("iframe"):
+        if "mpvideo" in (v.get("class") or []) or v.get("data-mpvid"):
+            cover = urllib.parse.unquote(v.get("data-cover", "") or "")
+            cname = ""
+            if cover:
+                try:
+                    rr = s.get(cover, timeout=20, headers={"Referer": url})
+                    if rr.status_code == 200 and len(rr.content) > 5000:
+                        cname = "video_cover.jpg"
+                        open(os.path.join(adir, cname), "wb").write(rr.content)
+                except Exception:
+                    pass
+            video_info.append({"mpvid": v.get("data-mpvid", ""), "cover": cname})
+
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    pt = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # 文末话题标签 -> 知识库标签
     tags = []
     for t in re.findall(r"#([^\s#]{1,20})", plain):
         if t not in tags:
             tags.append(t)
     tag_line = ", ".join(tags)
+    tag_index = "/".join(tags) if tags else "待补"
+    md = os.path.join(kb, "wechat", aid + ".md")
+    os.makedirs(os.path.dirname(md), exist_ok=True)
 
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    pt = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    md_path = Path(KB) / "wechat" / (aid + ".md")
-    md_path.parent.mkdir(parents=True, exist_ok=True)
-    md_path.write_text("""---
+    img_lines = []
+    for name in saved:
+        rel = "../_assets/wechat/%s/%s" % (aid, name)
+        img_lines.append("![图片](../_assets/wechat/%s/%s)\n> （待识别图片内容）" % (aid, name))
+
+    video_lines = []
+    for v in video_info:
+        video_lines.append("- 视频号视频（`%s`），封面：![视频封面](../_assets/wechat/%s/video_cover.jpg)" % (v["mpvid"], aid) if v.get("cover") else "- 视频号视频（`%s`）" % v["mpvid"])
+
+    with open(md, "w", encoding="utf-8") as f:
+        f.write("""---
 类型: 公众号文章
 公众号名称: %s
 原文标题: %s
@@ -115,10 +124,10 @@ def main(url):
 ## 核心内容
 （待提炼）
 
-## 金句 / 可复用片段
-（待提炼）
+## 图片（已存档 + 内容识别）
+%s
 
-## 图片（已存档）
+## 视频
 %s
 
 ## 原文全文
@@ -127,17 +136,12 @@ def main(url):
 
 ## 对我的价值 / 可复用点
 （待提炼）
-""" % (account, title, url, author, ptime, pt, now, tag_line, "\n\n".join(img_lines), plain),
-        encoding="utf-8")
+""" % (account, title, url, author, ptime, pt, now, tag_line, "\n\n".join(img_lines), "\n".join(video_lines) or "（无）", plain))
 
-    # 索引（插在表头下，保持倒序；重跑先删旧行）
-    index = Path(KB) / "INDEX.md"
-    if not index.exists():
-        index.write_text("# 知识库总索引\n\n| 入库时间 | 类型 | 标题 | 标签 | 原链接 | 条目 |\n|---|---|---|---|---|---|\n",
-                         encoding="utf-8")
-    tag_index = "/".join(tags) if tags else "待补"
+    # 索引：插在表头分隔线之后，保持倒序；重跑时先删旧行
+    idx = os.path.join(kb, "INDEX.md")
     row = "| %s | 公众号文章 | %s | %s | %s | [条目](wechat/%s.md) |" % (now, title, tag_index, url, aid)
-    lines = index.read_text(encoding="utf-8-sig").splitlines()
+    lines = open(idx, encoding="utf-8").read().splitlines()
     out, inserted = [], False
     for line in lines:
         if "(wechat/%s.md)" % aid in line:
@@ -148,15 +152,24 @@ def main(url):
             inserted = True
     if not inserted:
         out.append(row)
-    index.write_text("\n".join(out) + "\n", encoding="utf-8")
+    open(idx, "w", encoding="utf-8").write("\n".join(out) + "\n")
 
-    print(json.dumps({"title": title, "account": account, "author": author, "publish": ptime,
-                      "images": len(img_lines), "md": str(md_path)}, ensure_ascii=False, indent=1))
-    print("下一步：读正文回填「一句话总结 / 核心内容 / 金句 / 对我的价值」，再跑 kb-build.py")
+    # 重建本地浏览页（桌面「个人知识库」快捷方式打开的那个）
+    try:
+        import subprocess
+        subprocess.run([r"D:\Python312\python.exe", r"E:\deepseek\kb-tools\kb-build.py"],
+                       check=False, capture_output=True, timeout=120)
+        # 增量同步到 NAS 上的思源笔记
+        subprocess.run([r"D:\Python312\python.exe", r"E:\deepseek\kb-tools\kb-import-siyuan.py"],
+                       check=False, capture_output=True, timeout=300)
+    except Exception:
+        pass
 
+    print(json.dumps({"title": title, "account": account, "author": author,
+                      "publish": ptime, "images": len(saved), "videos": len(video_info),
+                      "md": md}, ensure_ascii=False, indent=1))
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("用法: python wechat-ingest.py <url>")
-        sys.exit(1)
+        print("用法: python wechat-ingest.py <url>"); sys.exit(1)
     main(sys.argv[1])
