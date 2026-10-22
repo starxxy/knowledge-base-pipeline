@@ -91,11 +91,13 @@ def short_source(type_name):
         return "微信公众号"
     if t.startswith("小红书"):
         return "小红书"
+    if t.startswith("哔哩哔哩") or t.startswith("B站"):
+        return "B站"
     return "笔记"
 
 
 entries = []
-for sub in ("douyin", "wechat", "xhs", "notes"):
+for sub in ("douyin", "bili", "wechat", "xhs", "notes"):
     d = os.path.join(KB, sub)
     if not os.path.isdir(d):
         continue
