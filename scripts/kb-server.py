@@ -17,6 +17,7 @@ import hmac
 import http.cookies
 import json
 import os
+import re
 import secrets
 import socket
 import sys
@@ -32,6 +33,84 @@ except Exception:
 
 SESSION_TTL = 30 * 24 * 3600  # 30 天
 ITER = 200_000
+KB_SUBS = ("douyin", "bili", "wechat", "xhs", "notes")
+
+
+# ---------------------------------------------------------------- 知识库 API
+def kb_entries(root):
+    import datetime
+    out = []
+    for sub in KB_SUBS:
+        d = Path(root) / sub
+        if not d.is_dir():
+            continue
+        for p in sorted(d.glob("*.md")):
+            raw = p.read_text(encoding="utf-8-sig", errors="ignore")
+            meta, body = {}, raw
+            m = re.match(r"^---\r?\n(.*?)\r?\n---\r?\n(.*)$", raw, re.S)
+            if m:
+                for line in m.group(1).splitlines():
+                    if ":" in line:
+                        k, v = line.split(":", 1)
+                        meta[k.strip()] = v.strip()
+                body = m.group(2)
+            title = (meta.get("视频标题") or meta.get("原文标题") or meta.get("标题") or p.stem).strip()
+            tags = [t.strip() for t in re.split(r"[,，]", (meta.get("标签") or "").strip().strip("[]")) if t.strip()]
+            out.append({
+                "path": p.relative_to(root).as_posix(),
+                "title": title,
+                "type": meta.get("类型", sub),
+                "date": meta.get("入库时间", ""),
+                "source": meta.get("原链接", ""),
+                "author": meta.get("作者", "") or meta.get("公众号名称", ""),
+                "tags": tags,
+                "body": body,
+            })
+    return sorted(out, key=lambda e: e.get("date") or "", reverse=True)
+
+
+def api_search(root, qs):
+    q = (qs.get("q", [""])[0] or "").strip()
+    t = (qs.get("type", [""])[0] or "").strip() or None
+    limit = min(int(qs.get("limit", ["10"])[0] or 10), 50)
+    res = []
+    for e in kb_entries(root):
+        hay = (e["title"] + " " + " ".join(e["tags"]) + " " + e["body"]).lower()
+        if (not q or q.lower() in hay) and (not t or t in e["type"]):
+            low, ql = e["body"].lower(), q.lower()
+            i = low.find(ql) if ql else 0
+            snip = e["body"][max(0, i - 40): i + 200] if i >= 0 else e["body"][:200]
+            res.append({k: e[k] for k in ("path", "title", "type", "date", "tags", "author")})
+            res[-1]["snippet"] = re.sub(r"\s+", " ", snip).strip()
+            if len(res) >= limit:
+                break
+    return {"count": len(res), "results": res}
+
+
+def api_entry(root, qs):
+    key = (qs.get("id", [""])[0] or "").strip()
+    if not key:
+        return {"error": "缺少 id 参数"}
+    p = (Path(root) / key).resolve()
+    if Path(root).resolve() not in p.parents:
+        return {"error": "路径越界"}
+    if not p.exists():
+        for e in kb_entries(root):
+            if e["path"].endswith(key) or Path(e["path"]).stem == key:
+                p = Path(root) / e["path"]
+                break
+    if not p.exists():
+        return {"error": "条目不存在: %s" % key}
+    raw = p.read_text(encoding="utf-8-sig", errors="ignore")
+    meta = {}
+    m = re.match(r"^---\r?\n(.*?)\r?\n---\r?\n(.*)$", raw, re.S)
+    if m:
+        for line in m.group(1).splitlines():
+            if ":" in line:
+                k, v = line.split(":", 1)
+                meta[k.strip()] = v.strip()
+        raw = m.group(2)
+    return {"path": p.relative_to(root).as_posix(), "meta": meta, "content": raw.strip()}
 
 
 # ---------------------------------------------------------------- 账号管理
@@ -173,8 +252,37 @@ class Handler(SimpleHTTPRequestHandler):
         return (data or {}).get("u")
 
     # ---------------- 路由 ----------------
+    def api_authed(self):
+        u = self.session_user()
+        if u:
+            return u
+        auth = self.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            tok = auth[7:].strip()
+            expect = self.server.accounts.get("api_token", "")
+            if expect and hmac.compare_digest(tok, expect):
+                return "api"
+        return None
+
     def do_GET(self):
         path = urllib.parse.urlparse(self.path).path
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        if path == "/api/stats":
+            if not self.api_authed():
+                return self.send_json({"error": "unauthorized"}, 401)
+            es = kb_entries(self.server.root)
+            by_type = {}
+            for e in es:
+                by_type[e["type"]] = by_type.get(e["type"], 0) + 1
+            return self.send_json({"total": len(es), "by_type": by_type})
+        if path == "/api/search":
+            if not self.api_authed():
+                return self.send_json({"error": "unauthorized"}, 401)
+            return self.send_json(api_search(self.server.root, qs))
+        if path == "/api/entry":
+            if not self.api_authed():
+                return self.send_json({"error": "unauthorized"}, 401)
+            return self.send_json(api_entry(self.server.root, qs))
         if path == "/login":
             return self.html(LOGIN_HTML.replace("__NEXT__", "").replace("__ERR__", ""))
         if path == "/api/me":
@@ -217,20 +325,26 @@ def main():
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--users", default="")
     ap.add_argument("--set-password", nargs=2, metavar=("USER", "PASSWORD"))
+    ap.add_argument("--show-token", action="store_true", help="显示 HTTP API 的 Bearer token")
     args = ap.parse_args()
 
     root = Path(args.root).resolve()
     users_path = Path(args.users) if args.users else Path(__file__).resolve().parent / "kb-users.json"
 
-    if args.set_password:
-        set_password(users_path, args.set_password[0], args.set_password[1])
-        return
-
     accounts = load_accounts(users_path)
     if not users_path.exists():
         save_accounts(users_path, accounts)
+    if "api_token" not in accounts:
+        accounts["api_token"] = secrets.token_hex(16)
+        save_accounts(users_path, accounts)
+    if args.show_token:
+        print(accounts["api_token"])
+        return
+    if args.set_password:
+        set_password(users_path, args.set_password[0], args.set_password[1])
+        return
     if not accounts["users"]:
-        sys.exit("还没有任何账号，请先执行：python kb-server.py --root <目录> --set-password <用户名> <密码>")
+        print("提示：还没有任何用户（网页登录不可用）；API 的 Bearer token 仍可用。")
 
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     httpd.root = root

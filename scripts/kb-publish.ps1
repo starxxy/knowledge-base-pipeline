@@ -12,7 +12,7 @@ $dst   = "/vol1/1000/kb-web/"
 
 # 2. 同步到 NAS（网页、索引、条目和图片）
 scp -i $key -o BatchMode=yes -o StrictHostKeyChecking=accept-new -q "$kb\index.html" "$kb\INDEX.md" "${host_}:$dst"
-scp -i $key -o BatchMode=yes -o StrictHostKeyChecking=accept-new -q -r "$kb\douyin" "$kb\wechat" "$kb\notes" "$kb\_assets" "${host_}:$dst"
+scp -i $key -o BatchMode=yes -o StrictHostKeyChecking=accept-new -q -r "$kb\douyin" "$kb\bili" "$kb\wechat" "$kb\xhs" "$kb\notes" "$kb\_assets" "${host_}:$dst"
 
 # 3. 确保登录服务在跑（服务脚本同步过去，不在就拉起来）
 scp -i $key -o BatchMode=yes -o StrictHostKeyChecking=accept-new -q "$tools\kb-server.py" "${host_}:/vol1/1000/kb-server/kb-server.py"
