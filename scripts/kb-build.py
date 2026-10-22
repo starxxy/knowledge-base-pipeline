@@ -89,11 +89,13 @@ def short_source(type_name):
         return "抖音视频"
     if t.startswith("公众号"):
         return "微信公众号"
+    if t.startswith("小红书"):
+        return "小红书"
     return "笔记"
 
 
 entries = []
-for sub in ("douyin", "wechat", "notes"):
+for sub in ("douyin", "wechat", "xhs", "notes"):
     d = os.path.join(KB, sub)
     if not os.path.isdir(d):
         continue
