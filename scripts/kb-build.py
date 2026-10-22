@@ -13,7 +13,7 @@ md = markdown.Markdown(extensions=["tables", "fenced_code", "sane_lists"])
 
 
 def parse(path):
-    raw = open(path, encoding="utf-8").read()
+    raw = open(path, encoding="utf-8-sig").read()
     meta, body = {}, raw
     m = re.match(r"^---\r?\n(.*?)\r?\n---\r?\n(.*)$", raw, re.S)
     if m:
@@ -34,7 +34,7 @@ def fix_image_extensions(root):
     """纠正扩展名与真实格式不符的图片（浏览器会判定为损坏），并同步改 md 引用。"""
     renamed = 0
     for md in list(root.glob("wechat/*.md")):
-        text = md.read_text(encoding="utf-8")
+        text = md.read_text(encoding="utf-8-sig")
         original = text
         for ref in set(re.findall(r"!\[[^\]]*\]\((\.\./_assets/[^)]+)\)", text)):
             p = (md.parent / ref).resolve()
@@ -83,6 +83,15 @@ def render(body):
 
 fix_image_extensions(Path(KB))
 
+def short_source(type_name):
+    t = type_name or ""
+    if t.startswith("抖音"):
+        return "抖音视频"
+    if t.startswith("公众号"):
+        return "微信公众号"
+    return "笔记"
+
+
 entries = []
 for sub in ("douyin", "wechat", "notes"):
     d = os.path.join(KB, sub)
@@ -92,10 +101,13 @@ for sub in ("douyin", "wechat", "notes"):
         if not name.endswith(".md"):
             continue
         meta, body = parse(os.path.join(d, name))
-        title = meta.get("视频标题") or meta.get("原文标题") or meta.get("标题") or name[:-3]
+        raw_title = meta.get("视频标题") or meta.get("原文标题") or meta.get("标题") or name[:-3]
+        src = short_source(meta.get("类型", sub))
         entries.append({
             "type": meta.get("类型", sub),
-            "title": title,
+            "src": src,
+            "title": "【%s】%s" % (src, raw_title),
+            "raw_title": raw_title,
             "source": meta.get("原链接", ""),
             "author": meta.get("作者", "") or meta.get("公众号名称", ""),
             "date": meta.get("入库时间", ""),

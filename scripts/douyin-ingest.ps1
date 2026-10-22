@@ -166,6 +166,8 @@ NAS归档路径: $video
 标签: [$tagLine]
 ---
 
+> 来源：抖音视频　｜　原链接：$Url
+
 ## 一句话总结
 （待提炼）
 
@@ -187,7 +189,7 @@ $transcript
 "@ | Set-Content -Encoding UTF8 $draft
 
 $indexTags = if ($tagLine) { $tagLine -replace ',\s*', '/' } else { '待补' }
-$row = "| $now | 抖音视频 | $Title | $indexTags | $Url | [条目](douyin/$id.md) |"
+$row = "| $now | 抖音视频 | 【抖音视频】$Title | $indexTags | $Url | [条目](douyin/$id.md) |"
 $index = "$kb\INDEX.md"
 $lines = Get-Content $index -Encoding UTF8
 $out = New-Object System.Collections.Generic.List[string]
@@ -223,3 +225,4 @@ $((Get-Content $resFile -Raw -Encoding UTF8).Trim())
 Write-Host "`n=== 完成 ===" -ForegroundColor Cyan
 Write-Host "条目: $draft"
 Write-Host "转写: $($transcript.Length) 字"
+Write-Host "下一步（AI）：① 给逐字稿加标点并分段（不得增删内容）② 回填「一句话总结 / 核心内容 / 金句」③ 复核「资源清单」候选，再跑 kb-build.py"

@@ -67,7 +67,7 @@ def main():
     for md in targets:
         urls, found, hints = resources_of(md)
         title = ""
-        m = re.search(r"^视频标题:\s*(.+)$", md.read_text(encoding="utf-8"), re.M)
+        m = re.search(r"^视频标题:\s*(.+)$", md.read_text(encoding="utf-8-sig"), re.M)
         if m:
             title = m.group(1).strip()
         print("=" * 60)

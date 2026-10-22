@@ -130,6 +130,8 @@ def main(url):
 标签: [%s]
 ---
 
+> 来源：微信公众号　｜　原链接：%s
+
 ## 一句话总结
 （待提炼）
 
@@ -148,11 +150,11 @@ def main(url):
 
 ## 对我的价值 / 可复用点
 （待提炼）
-""" % (account, title, url, author, ptime, pt, now, tag_line, "\n\n".join(img_lines), "\n".join(video_lines) or "（无）", plain))
+""" % (account, title, url, author, ptime, pt, now, tag_line, url, "\n\n".join(img_lines), "\n".join(video_lines) or "（无）", plain))
 
     # 索引：插在表头分隔线之后，保持倒序；重跑时先删旧行
     idx = os.path.join(kb, "INDEX.md")
-    row = "| %s | 公众号文章 | %s | %s | %s | [条目](wechat/%s.md) |" % (now, title, tag_index, url, aid)
+    row = "| %s | 公众号文章 | 【微信公众号】%s | %s | %s | [条目](wechat/%s.md) |" % (now, title, tag_index, url, aid)
     lines = open(idx, encoding="utf-8").read().splitlines()
     out, inserted = [], False
     for line in lines:
@@ -173,6 +175,9 @@ def main(url):
                        check=False, capture_output=True, timeout=120)
         # 增量同步到 NAS 上的思源笔记
         subprocess.run([r"D:\Python312\python.exe", r"E:\deepseek\kb-tools\kb-import-siyuan.py"],
+                       check=False, capture_output=True, timeout=300)
+        # 视觉去重：同一张图（不同格式/带水印重复）只保留一张
+        subprocess.run([r"D:\Python312\python.exe", r"E:\deepseek\kb-tools\kb-dedupe-visual.py"],
                        check=False, capture_output=True, timeout=300)
     except Exception:
         pass
