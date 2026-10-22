@@ -216,11 +216,9 @@ $((Get-Content $resFile -Raw -Encoding UTF8).Trim())
 "@
 }
 
-# 重建本地浏览页（桌面「个人知识库」快捷方式打开的那个）
+# 发布到 NAS 网页版（桌面「个人知识库」快捷方式打开的是本机版本）
 & "D:\Python312\python.exe" "$tools\kb-build.py" 2>$null | Out-Null
-
-# 增量同步到 NAS 上的思源笔记（NAS 不在线时忽略）
-& "D:\Python312\python.exe" "$tools\kb-import-siyuan.py" 2>$null | Out-Null
+& powershell -NoProfile -ExecutionPolicy Bypass -File "$tools\kb-publish.ps1" 2>$null | Out-Null
 
 Write-Host "`n=== 完成 ===" -ForegroundColor Cyan
 Write-Host "条目: $draft"

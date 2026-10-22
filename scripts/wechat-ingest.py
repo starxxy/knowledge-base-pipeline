@@ -179,9 +179,7 @@ def main(url):
                        check=False, capture_output=True, timeout=300)
         subprocess.run([r"D:\Python312\python.exe", r"E:\deepseek\kb-tools\kb-build.py"],
                        check=False, capture_output=True, timeout=120)
-        # 增量同步到 NAS 上的思源笔记
-        subprocess.run([r"D:\Python312\python.exe", r"E:\deepseek\kb-tools\kb-import-siyuan.py"],
-                       check=False, capture_output=True, timeout=300)
+
         # 视觉去重：同一张图（不同格式/带水印重复）只保留一张
         subprocess.run([r"D:\Python312\python.exe", r"E:\deepseek\kb-tools\kb-dedupe-visual.py"],
                        check=False, capture_output=True, timeout=300)
