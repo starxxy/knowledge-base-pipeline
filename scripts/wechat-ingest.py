@@ -13,7 +13,11 @@ def main(url):
     UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     kb = r"E:\deepseek\knowledge-base"
     s = requests.Session()
-    s.headers.update({"User-Agent": UA})
+    s.headers.update({
+        "User-Agent": UA,
+        "Referer": "https://mp.weixin.qq.com/",
+        "Accept-Language": "zh-CN,zh;q=0.9",
+    })
     r = s.get(url, timeout=30)
     r.encoding = "utf-8"
     soup = BeautifulSoup(r.text, "lxml")
@@ -171,6 +175,8 @@ def main(url):
     # 重建本地浏览页（桌面「个人知识库」快捷方式打开的那个）
     try:
         import subprocess
+        subprocess.run([r"D:\Python312\python.exe", r"E:\deepseek\kb-tools\kb-normalize-wechat.py"],
+                       check=False, capture_output=True, timeout=300)
         subprocess.run([r"D:\Python312\python.exe", r"E:\deepseek\kb-tools\kb-build.py"],
                        check=False, capture_output=True, timeout=120)
         # 增量同步到 NAS 上的思源笔记
