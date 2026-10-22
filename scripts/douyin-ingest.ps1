@@ -200,6 +200,20 @@ foreach ($l in $lines) {
 if (-not $inserted) { $out.Add($row) }
 Set-Content -Path $index -Value $out -Encoding UTF8
 
+# 从逐字稿里抽一份「资源清单候选」，供 AI 复核后整理成正式清单
+$resFile = Join-Path $env:TEMP "res_$id.txt"
+& $python "$tools\kb-extract-resources.py" $draft 2>$null | Set-Content -Path $resFile -Encoding UTF8
+if (Test-Path $resFile) {
+  Add-Content -Path $draft -Encoding UTF8 -Value @"
+
+## 资源清单（候选，待 AI 复核整理）
+
+``````
+$((Get-Content $resFile -Raw -Encoding UTF8).Trim())
+``````
+"@
+}
+
 # 重建本地浏览页（桌面「个人知识库」快捷方式打开的那个）
 & "D:\Python312\python.exe" "$tools\kb-build.py" 2>$null | Out-Null
 

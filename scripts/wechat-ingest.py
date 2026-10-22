@@ -56,9 +56,19 @@ def main(url):
                 if digest in seen_hash:          # 同内容图片已保存过，复用引用
                     saved.append(seen_hash[digest])
                     continue
-                ext = ".png" if "png" in u.lower() or "png" in rr.headers.get("content-type", "") else ".jpg"
-                if "gif" in u.lower(): ext = ".gif"
-                if "webp" in u.lower(): ext = ".webp"
+                ext = os.path.splitext(u.split("?")[0])[1].lower() or ".jpg"
+                if ext not in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+                    ext = ".jpg"
+                # 以真实字节为准（公众号常见：URL 写 jpg、内容其实是 png/webp）
+                magic = rr.content[:16]
+                if magic[:8] == b"\x89PNG\r\n\x1a\n":
+                    ext = ".png"
+                elif magic[:3] == b"\xff\xd8\xff":
+                    ext = ".jpg"
+                elif magic[:6] in (b"GIF87a", b"GIF89a"):
+                    ext = ".gif"
+                elif magic[:4] == b"RIFF" and magic[8:12] == b"WEBP":
+                    ext = ".webp"
                 name = "img_%02d%s" % (i, ext)
                 open(os.path.join(adir, name), "wb").write(rr.content)
                 seen_hash[digest] = name
